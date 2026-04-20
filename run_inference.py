@@ -2,7 +2,6 @@
 TimeLens-8B 推論スクリプト
 
 使用方法:
-    conda activate timelens
     python run_inference.py --base_dir /path/to/research
 
 ディレクトリ構成（base_dir以下）:
@@ -22,6 +21,8 @@ TimeLens-8B 推論スクリプト
     --results_dir   結果保存先（省略時: experiments/timelens/results）
     --timelens_repo TimeLensリポジトリのパス（省略時: /workspace/TimeLens）
     --fps           動画サンプリングFPS（省略時: 2）
+    --quantize      量子化モード: none / int8 / int4（省略時: none）
+                    int8: ~10GB VRAM、int4: ~6GB VRAM
 """
 
 import argparse
@@ -44,22 +45,23 @@ GROUNDER_PROMPT = (
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir",     required=True,
+    parser.add_argument("--base_dir",      required=True,
                         help="研究ルートディレクトリ（datasets/, experiments/, models/ を含む）")
-    parser.add_argument("--test_data",    default=None,
+    parser.add_argument("--test_data",     default=None,
                         help="テストデータJSON（base_dirからの相対パス or 絶対パス）")
-    parser.add_argument("--model",        default=None,
+    parser.add_argument("--model",         default=None,
                         help="モデルディレクトリ（base_dirからの相対パス or 絶対パス）")
-    parser.add_argument("--results_dir",  default=None,
+    parser.add_argument("--results_dir",   default=None,
                         help="結果保存先（base_dirからの相対パス or 絶対パス）")
     parser.add_argument("--timelens_repo", default="/workspace/TimeLens",
                         help="TimeLensリポジトリのパス（デフォルト: /workspace/TimeLens）")
-    parser.add_argument("--fps",          type=int, default=2)
+    parser.add_argument("--fps",           type=int, default=2)
+    parser.add_argument("--quantize",      default="none", choices=["none", "int8", "int4"],
+                        help="量子化モード: none / int8 / int4（省略時: none）")
     return parser.parse_args()
 
 
 def resolve(base_dir, path, default_relative):
-    """絶対パスならそのまま、Noneまたは相対パスならbase_dirと結合する"""
     if path is None:
         return os.path.join(base_dir, default_relative)
     if os.path.isabs(path):
@@ -67,20 +69,52 @@ def resolve(base_dir, path, default_relative):
     return os.path.join(base_dir, path)
 
 
-def load_model(model_path):
+def load_model(model_path, quantize="none"):
     print(f"モデル読み込み中: {model_path}")
-    model = AutoModelForImageTextToText.from_pretrained(
-        model_path,
-        dtype=torch.bfloat16,
-        device_map="auto",
-    ).eval()
+    print(f"量子化モード: {quantize}")
+
+    if quantize == "int8":
+        from transformers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            quantization_config=bnb_config,
+            device_map="auto",
+        ).eval()
+    elif quantize == "int4":
+        from transformers import BitsAndBytesConfig
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+        )
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            quantization_config=bnb_config,
+            device_map="auto",
+        ).eval()
+    else:
+        model = AutoModelForImageTextToText.from_pretrained(
+            model_path,
+            dtype=torch.bfloat16,
+            device_map="auto",
+        ).eval()
+
     processor = AutoProcessor.from_pretrained(
         model_path,
         padding_side="left",
         do_resize=False,
         trust_remote_code=True,
     )
-    print("モデル読み込み完了\n")
+
+    if torch.cuda.is_available():
+        vram_used = torch.cuda.memory_allocated() / 1024**3
+        vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        print(f"モデル読み込み完了 — VRAM使用: {vram_used:.1f}GB / {vram_total:.1f}GB\n")
+    else:
+        print("モデル読み込み完了\n")
+
     return model, processor
 
 
@@ -151,31 +185,28 @@ def main():
     args = parse_args()
     base_dir = os.path.abspath(args.base_dir)
 
-    # パス解決
-    model_path    = resolve(base_dir, args.model,       "models/TimeLens-8B")
-    test_data_path = resolve(base_dir, args.test_data,  "experiments/timelens/plans/test_data_20260419.json")
-    results_dir   = resolve(base_dir, args.results_dir, "experiments/timelens/results")
+    model_path     = resolve(base_dir, args.model,       "models/TimeLens-8B")
+    test_data_path = resolve(base_dir, args.test_data,   "experiments/timelens/plans/test_data_20260419.json")
+    results_dir    = resolve(base_dir, args.results_dir, "experiments/timelens/results")
 
     print(f"base_dir:     {base_dir}")
     print(f"model:        {model_path}")
     print(f"test_data:    {test_data_path}")
     print(f"results_dir:  {results_dir}")
-    print(f"timelens_repo:{args.timelens_repo}\n")
+    print(f"timelens_repo:{args.timelens_repo}")
+    print(f"quantize:     {args.quantize}\n")
 
-    # TimeLensリポジトリをパスに追加
     sys.path.insert(0, args.timelens_repo)
-
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     with open(test_data_path, encoding="utf-8") as f:
         test_data = json.load(f)
 
-    model, processor = load_model(model_path)
+    model, processor = load_model(model_path, args.quantize)
 
     results = []
     for i, item in enumerate(test_data):
-        # clip_pathが相対パスならbase_dirと結合
         clip_path = item["clip_path"]
         if not os.path.isabs(clip_path):
             clip_path = os.path.join(base_dir, clip_path)
@@ -189,6 +220,10 @@ def main():
         print(f"       尺:       {duration:.3f}s")
 
         response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps)
+
+        if torch.cuda.is_available():
+            vram_used = torch.cuda.memory_allocated() / 1024**3
+            print(f"       VRAM:     {vram_used:.1f}GB")
 
         gt = (item["clip_time_start"], item["clip_time_end"])
         iou = calc_iou(pred_timestamps, gt)
@@ -213,7 +248,6 @@ def main():
             "r1_at_07": r1_07,
         })
 
-    # 集計
     n = len(results)
     avg_iou   = sum(r["iou"]      for r in results) / n
     r1_03_avg = sum(r["r1_at_03"] for r in results) / n
@@ -222,6 +256,7 @@ def main():
 
     summary = {
         "model": model_path,
+        "quantize": args.quantize,
         "test_data": test_data_path,
         "timestamp": timestamp,
         "n_samples": n,
@@ -234,18 +269,17 @@ def main():
         "results": results,
     }
 
-    # JSON保存
     json_path = f"{results_dir}/results_{timestamp}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"JSON保存: {json_path}")
 
-    # Markdown保存
     md_path = f"{results_dir}/results_{timestamp}.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(f"# TimeLens-8B 推論結果\n\n")
         f.write(f"- 実行日時: {timestamp}\n")
         f.write(f"- モデル: {model_path}\n")
+        f.write(f"- 量子化: {args.quantize}\n")
         f.write(f"- サンプル数: {n}\n\n")
         f.write(f"## メトリクス\n\n")
         f.write(f"| mIoU | R1@0.3 | R1@0.5 | R1@0.7 |\n")
