@@ -21,6 +21,8 @@ TimeLens-8B 推論スクリプト
     --results_dir   結果保存先（省略時: experiments/timelens/results）
     --timelens_repo TimeLensリポジトリのパス（省略時: /workspace/TimeLens）
     --fps           動画サンプリングFPS（省略時: 2）
+    --total_pixels  全フレームの合計ピクセル予算（省略時: 14336*1024=14680064）
+                    8GB VRAM向けには 3145728（=3072*1024）を推奨
     --quantize      量子化モード: none / int8 / int4（省略時: none）
                     int8: ~10GB VRAM、int4: ~6GB VRAM
 """
@@ -88,6 +90,8 @@ def parse_args():
     parser.add_argument("--results_dir",   default=None,
                         help="結果保存先（base_dirからの相対パス or 絶対パス）")
     parser.add_argument("--fps",           type=int, default=2)
+    parser.add_argument("--total_pixels",  type=int, default=14336 * 1024,
+                        help="全フレームの合計ピクセル予算。8GB VRAMでは 3145728 推奨")
     parser.add_argument("--quantize",      default="none", choices=["none", "int8", "int4"],
                         help="量子化モード: none / int8 / int4（省略時: none）")
     parser.add_argument("--max_gpu_memory", default="5",
@@ -156,7 +160,7 @@ def load_model(model_path, quantize="none", max_gpu_memory="5"):
     return model, processor
 
 
-def run_inference(model, processor, video_path, query, fps=2):
+def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336 * 1024):
     messages = [
         {
             "role": "user",
@@ -165,7 +169,7 @@ def run_inference(model, processor, video_path, query, fps=2):
                     "type": "video",
                     "video": video_path,
                     "min_pixels": 64 * 32 * 32,
-                    "total_pixels": 14336 * 32 * 32,
+                    "total_pixels": total_pixels,
                     "fps": fps,
                 },
                 {"type": "text", "text": GROUNDER_PROMPT.format(query)},
@@ -254,7 +258,7 @@ def main():
         duration = get_duration(clip_path)
         print(f"       尺:       {duration:.3f}s")
 
-        response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps)
+        response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps, args.total_pixels)
 
         if torch.cuda.is_available():
             vram_used = torch.cuda.memory_allocated() / 1024**3
