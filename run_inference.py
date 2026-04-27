@@ -39,6 +39,16 @@ from datetime import datetime, timedelta
 import av
 import psutil
 import torch
+
+def _check_sdpa():
+    if not torch.cuda.is_available():
+        return
+    flash = torch.backends.cuda.flash_sdp_enabled()
+    mem   = torch.backends.cuda.mem_efficient_sdp_enabled()
+    math  = torch.backends.cuda.math_sdp_enabled()
+    print(f"SDPA kernels — flash: {flash}  mem_efficient: {mem}  math: {math}")
+
+_check_sdpa()
 from qwen_vl_utils import process_vision_info
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
