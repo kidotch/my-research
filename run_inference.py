@@ -215,10 +215,12 @@ def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336
 
 def mem_stats():
     ram = psutil.virtual_memory()
-    ram_used = ram.used / 1024**3
+    # total - available = 実際に使用中（ページキャッシュ含む、nvidia-smi相当）
+    ram_used = (ram.total - ram.available) / 1024**3
     ram_total = ram.total / 1024**3
     if torch.cuda.is_available():
-        vram_used = torch.cuda.memory_allocated() / 1024**3
+        # memory_reserved = PyTorchがOSに確保済み（nvidia-smiと一致）
+        vram_used = torch.cuda.memory_reserved() / 1024**3
         vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
         return f"VRAM {vram_used:.1f}/{vram_total:.1f}GB  RAM {ram_used:.1f}/{ram_total:.1f}GB"
     return f"RAM {ram_used:.1f}/{ram_total:.1f}GB"
