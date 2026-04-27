@@ -28,6 +28,7 @@ TimeLens-8B 推論スクリプト
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -35,6 +36,39 @@ import av
 import torch
 from qwen_vl_utils import process_vision_info
 from transformers import AutoModelForImageTextToText, AutoProcessor
+
+
+def extract_time(paragraph):
+    paragraph = paragraph.lower()
+    timestamps = []
+    time_regex = re.compile(r"\b(\d{1,2}:\d{2}:\d{2}(?:\.\d+)?|\d{1,2}:\d{2}(?:\.\d+)?)\b")
+    time_matches = re.findall(time_regex, paragraph)
+    time_matches = time_matches[: len(time_matches) // 2 * 2]
+    if time_matches:
+        converted = []
+        for t in time_matches:
+            parts = t.split(":")
+            if len(parts) == 3:
+                h, m = map(int, parts[:2])
+                s = float(parts[2])
+                converted.append(h * 3600 + m * 60 + s)
+            elif len(parts) == 2:
+                m = int(parts[0])
+                s = float(parts[1])
+                converted.append(m * 60 + s)
+        timestamps = [(converted[i], converted[i + 1]) for i in range(0, len(converted), 2)]
+    if not timestamps:
+        for pattern in [r"(\d+\.?\d*)\s*-\s*(\d+\.?\d*)", r"(\d+\.?\d*)\s+to\s+(\d+\.?\d*)"]:
+            matches = re.findall(pattern, paragraph)
+            if matches:
+                timestamps = [(float(s), float(e)) for s, e in matches]
+                break
+    if not timestamps:
+        nums = re.findall(r"\b(\d+\.\d+|\d+)\b", paragraph)
+        nums = nums[: len(nums) // 2 * 2]
+        timestamps = [(float(nums[i]), float(nums[i + 1])) for i in range(0, len(nums), 2)]
+    return timestamps
+
 
 GROUNDER_PROMPT = (
     "Please find the visual event described by the sentence '{}', "
@@ -53,11 +87,11 @@ def parse_args():
                         help="モデルディレクトリ（base_dirからの相対パス or 絶対パス）")
     parser.add_argument("--results_dir",   default=None,
                         help="結果保存先（base_dirからの相対パス or 絶対パス）")
-    parser.add_argument("--timelens_repo", default="/workspace/TimeLens",
-                        help="TimeLensリポジトリのパス（デフォルト: /workspace/TimeLens）")
     parser.add_argument("--fps",           type=int, default=2)
     parser.add_argument("--quantize",      default="none", choices=["none", "int8", "int4"],
                         help="量子化モード: none / int8 / int4（省略時: none）")
+    parser.add_argument("--max_gpu_memory", default="5",
+                        help="GPUに乗せるモデルの上限GB（省略時: 5）。VRAM 8GBなら4、12GBなら5〜7推奨")
     return parser.parse_args()
 
 
@@ -69,13 +103,16 @@ def resolve(base_dir, path, default_relative):
     return os.path.join(base_dir, path)
 
 
-def load_model(model_path, quantize="none"):
+def load_model(model_path, quantize="none", max_gpu_memory="5"):
     print(f"モデル読み込み中: {model_path}")
     print(f"量子化モード: {quantize}")
 
     if quantize == "int8":
         from transformers import BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(load_in_8bit=True)
+        bnb_config = BitsAndBytesConfig(
+            load_in_8bit=True,
+            llm_int8_enable_fp32_cpu_offload=True,
+        )
         model = AutoModelForImageTextToText.from_pretrained(
             model_path,
             quantization_config=bnb_config,
@@ -99,6 +136,7 @@ def load_model(model_path, quantize="none"):
             model_path,
             dtype=torch.bfloat16,
             device_map="auto",
+            max_memory={0: f"{max_gpu_memory}GiB", "cpu": "60GiB"},
         ).eval()
 
     processor = AutoProcessor.from_pretrained(
@@ -161,7 +199,6 @@ def run_inference(model, processor, video_path, query, fps=2):
     output_ids = output_ids[:, inputs["input_ids"].shape[1]:]
     response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
 
-    from timelens.utils import extract_time
     timestamps = extract_time(response)
     return response, timestamps
 
@@ -193,17 +230,15 @@ def main():
     print(f"model:        {model_path}")
     print(f"test_data:    {test_data_path}")
     print(f"results_dir:  {results_dir}")
-    print(f"timelens_repo:{args.timelens_repo}")
     print(f"quantize:     {args.quantize}\n")
 
-    sys.path.insert(0, args.timelens_repo)
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     with open(test_data_path, encoding="utf-8") as f:
         test_data = json.load(f)
 
-    model, processor = load_model(model_path, args.quantize)
+    model, processor = load_model(model_path, args.quantize, args.max_gpu_memory)
 
     results = []
     for i, item in enumerate(test_data):
