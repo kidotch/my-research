@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -200,11 +201,11 @@ def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336
     )
     inputs = inputs.to(model.device)
 
-    from transformers import TextStreamer
-    print("       生成中: ", end="", flush=True)
-    streamer = TextStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
+    monitor = MemMonitor()
+    monitor.start()
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=256, streamer=streamer)
+        output_ids = model.generate(**inputs, max_new_tokens=256)
+    monitor.stop()
 
     output_ids = output_ids[:, inputs["input_ids"].shape[1]:]
     response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
@@ -224,6 +225,27 @@ def mem_stats():
         vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
         return f"VRAM {vram_used:.1f}/{vram_total:.1f}GB  RAM {ram_used:.1f}/{ram_total:.1f}GB"
     return f"RAM {ram_used:.1f}/{ram_total:.1f}GB"
+
+
+class MemMonitor:
+    """推論中にメモリ使用量を1秒ごとに同一行で更新するスレッド"""
+    def __init__(self):
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join()
+        print()  # 改行
+
+    def _run(self):
+        while not self._stop.wait(1.0):
+            print(f"\r       [{mem_stats()}]", end="", flush=True)
 
 
 def get_duration(video_path):
@@ -286,7 +308,6 @@ def main():
         avg_elapsed = sum(elapsed_times) / len(elapsed_times)
         remaining = avg_elapsed * (len(test_data) - (i + 1))
         eta_str = str(timedelta(seconds=int(remaining)))
-        print(f"       メモリ:   {mem_stats()}")
         print(f"       推論時間: {elapsed:.1f}s  ETA {eta_str}")
 
         gt = (item["clip_time_start"], item["clip_time_end"])
