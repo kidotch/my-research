@@ -1,4 +1,4 @@
-# jichi-research
+# my-research
 
 手術・看護手技動画を対象とした Video Temporal Grounding の研究コード。
 
@@ -7,40 +7,60 @@
 このリポジトリはコードのみを管理します。データ・結果は Google Drive で管理します。
 
 ```
-research/               ← --base_dir に渡すルート（Google Drive からコピー）
+research/               ← --base_dir に渡すルート
 ├── datasets/           ← 動画クリップ
 ├── experiments/
 │   └── timelens/
-│       ├── plans/      ← テストデータ JSON（Google Drive 管理）
-│       └── results/    ← 推論結果（Google Drive 管理）
+│       ├── plans/      ← テストデータ JSON
+│       └── results/    ← 推論結果
 └── models/
     └── TimeLens-8B/    ← モデルウェイト
 ```
 
-## セットアップ
+## セットアップ（初回のみ）
 
 ```bash
-# 1. TimeLens 環境構築（初回のみ）
 bash setup_timelens.sh
-
-# 2. 推論実行
-conda activate timelens
-python run_inference.py --base_dir /path/to/research
 ```
 
-## 動作確認済み環境
+## 推論コマンド
 
-- GPU: NVIDIA RTX PRO 6000 (Blackwell, sm_120)
-- PyTorch: 2.11.0+cu128
-- Python: 3.11
+### 自宅 PC（RTX 3060 12GB）
 
-## オプション
+```fish
+~/venvs/timelens/bin/python3 ~/ghq/github.com/kidotch/my-research/run_inference.py \
+  --base_dir ~/univ/research \
+  --test_data experiments/timelens/plans/test_data_60s_20260420.json
+```
+
+- `--fps` / `--total_pixels` 指定不要（デフォルト値で動作）
+- 約50秒/サンプル
+
+### 研究室 PC（RTX 2070 8GB, WSL2）
+
+```fish
+source ~/venvs/timelens/bin/activate.fish && python3 ~/ghq/github.com/kidotch/my-research/run_inference.py \
+  --base_dir /mnt/d/kido/univ/research \
+  --test_data experiments/timelens/plans/test_data_60s_20260420.json \
+  --max_gpu_memory 6 \
+  --fps 1 \
+  --total_pixels 3145728
+```
+
+- Flash Attention 非対応のため `--fps 1 --total_pixels 3145728` でメモリ削減が必要
+- 約180秒/サンプル
+- 実行前に Whisper 等の残留プロセスが VRAM を食っていないか確認（`nvidia-smi`）
+
+## オプション一覧
 
 ```
-python run_inference.py \
-  --base_dir     /path/to/research   # 必須: research ルートディレクトリ
-  --test_data    path/to/test.json   # 省略時: experiments/timelens/plans/test_data_20260419.json
-  --model        path/to/model       # 省略時: models/TimeLens-8B
-  --results_dir  path/to/results     # 省略時: experiments/timelens/results
-  --fps          2                   # 動画サンプリング FPS（省略時: 2）
+--base_dir        研究ルートディレクトリ（必須）
+--test_data       テストデータ JSON（base_dir からの相対パスまたは絶対パス）
+--model           モデルディレクトリ（省略時: models/TimeLens-8B）
+--results_dir     結果保存先（省略時: experiments/timelens/results）
+--fps             動画サンプリング FPS（省略時: 2）
+--total_pixels    全フレームの合計ピクセル予算（省略時: 14680064）
+                  8GB VRAM 向けには 3145728 を推奨
+--max_gpu_memory  GPU に乗せるモデルの上限 GB（省略時: 5）
+--quantize        量子化モード: none / int8 / int4（省略時: none）
 ```
