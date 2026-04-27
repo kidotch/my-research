@@ -239,9 +239,10 @@ class InferenceStreamer:
         self._thread.start()
 
     def put(self, value):
-        self._prefill_done = True
-        n = value.shape[-1] if hasattr(value, "shape") else 1
-        self.token_count += n
+        if not self._prefill_done:
+            self._prefill_done = True
+            self.token_count = 0
+        self.token_count += 1
         pct = min(100, self.token_count / self.max_new_tokens * 100)
         print(f"\r       [{mem_stats()}] 生成 {self.token_count}/{self.max_new_tokens} ({pct:.0f}%)", end="", flush=True)
 
@@ -310,6 +311,7 @@ def main():
 
         t0 = time.time()
         response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps, args.total_pixels)
+        torch.cuda.empty_cache()
         elapsed = time.time() - t0
         elapsed_times.append(elapsed)
 
