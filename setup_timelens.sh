@@ -36,8 +36,8 @@ echo "      PyTorch (cu124)..."
 echo "      transformers / accelerate / bitsandbytes..."
 "$PIP" install transformers accelerate bitsandbytes -q
 
-echo "      qwen-vl-utils / av / decord..."
-"$PIP" install qwen-vl-utils av decord -q
+echo "      qwen-vl-utils / av / decord / psutil..."
+"$PIP" install qwen-vl-utils av decord psutil -q
 
 echo "      完了"
 

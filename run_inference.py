@@ -32,9 +32,11 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
 import av
+import psutil
 import torch
 from qwen_vl_utils import process_vision_info
 from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -212,6 +214,17 @@ def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336
     return response, timestamps
 
 
+def mem_stats():
+    ram = psutil.virtual_memory()
+    ram_used = ram.used / 1024**3
+    ram_total = ram.total / 1024**3
+    if torch.cuda.is_available():
+        vram_used = torch.cuda.memory_allocated() / 1024**3
+        vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        return f"VRAM {vram_used:.1f}/{vram_total:.1f}GB  RAM {ram_used:.1f}/{ram_total:.1f}GB"
+    return f"RAM {ram_used:.1f}/{ram_total:.1f}GB"
+
+
 def get_duration(video_path):
     with av.open(video_path) as c:
         return round(float(c.duration) / 1e6, 3)
@@ -250,6 +263,7 @@ def main():
     model, processor = load_model(model_path, args.quantize, args.max_gpu_memory)
 
     results = []
+    elapsed_times = []
     for i, item in enumerate(test_data):
         clip_path = item["clip_path"]
         if not os.path.isabs(clip_path):
@@ -263,11 +277,16 @@ def main():
         duration = get_duration(clip_path)
         print(f"       尺:       {duration:.3f}s")
 
+        t0 = time.time()
         response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps, args.total_pixels)
+        elapsed = time.time() - t0
+        elapsed_times.append(elapsed)
 
-        if torch.cuda.is_available():
-            vram_used = torch.cuda.memory_allocated() / 1024**3
-            print(f"       VRAM:     {vram_used:.1f}GB")
+        avg_elapsed = sum(elapsed_times) / len(elapsed_times)
+        remaining = avg_elapsed * (len(test_data) - (i + 1))
+        eta_str = str(timedelta(seconds=int(remaining)))
+        print(f"       メモリ:   {mem_stats()}")
+        print(f"       推論時間: {elapsed:.1f}s  ETA {eta_str}")
 
         gt = (item["clip_time_start"], item["clip_time_end"])
         iou = calc_iou(pred_timestamps, gt)
