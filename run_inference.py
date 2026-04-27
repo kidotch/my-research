@@ -201,11 +201,10 @@ def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336
     )
     inputs = inputs.to(model.device)
 
-    monitor = MemMonitor()
-    monitor.start()
+    max_new_tokens = 256
+    streamer = InferenceStreamer(processor.tokenizer, max_new_tokens)
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=256)
-    monitor.stop()
+        output_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, streamer=streamer)
 
     output_ids = output_ids[:, inputs["input_ids"].shape[1]:]
     response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
@@ -227,25 +226,34 @@ def mem_stats():
     return f"RAM {ram_used:.1f}/{ram_total:.1f}GB"
 
 
-class MemMonitor:
-    """推論中にメモリ使用量を1秒ごとに同一行で更新するスレッド"""
-    def __init__(self):
-        self._stop = threading.Event()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+class InferenceStreamer:
+    """推論中にメモリ・進捗をリアルタイム表示するストリーマー"""
 
-    def start(self):
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._run, daemon=True)
+    def __init__(self, tokenizer, max_new_tokens):
+        self.tokenizer = tokenizer
+        self.max_new_tokens = max_new_tokens
+        self.token_count = 0
+        self._prefill_done = False
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._mem_loop, daemon=True)
         self._thread.start()
 
-    def stop(self):
+    def put(self, value):
+        self._prefill_done = True
+        n = value.shape[-1] if hasattr(value, "shape") else 1
+        self.token_count += n
+        pct = min(100, self.token_count / self.max_new_tokens * 100)
+        print(f"\r       [{mem_stats()}] 生成 {self.token_count}/{self.max_new_tokens} ({pct:.0f}%)", end="", flush=True)
+
+    def end(self):
         self._stop.set()
         self._thread.join()
-        print()  # 改行
+        print()
 
-    def _run(self):
+    def _mem_loop(self):
         while not self._stop.wait(1.0):
-            print(f"\r       [{mem_stats()}]", end="", flush=True)
+            if not self._prefill_done:
+                print(f"\r       [{mem_stats()}] プリフィル中...", end="", flush=True)
 
 
 def get_duration(video_path):
