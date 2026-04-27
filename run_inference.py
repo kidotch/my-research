@@ -200,8 +200,11 @@ def run_inference(model, processor, video_path, query, fps=2, total_pixels=14336
     )
     inputs = inputs.to(model.device)
 
+    from transformers import TextStreamer
+    print("       生成中: ", end="", flush=True)
+    streamer = TextStreamer(processor.tokenizer, skip_prompt=True, skip_special_tokens=True)
     with torch.no_grad():
-        output_ids = model.generate(**inputs, max_new_tokens=256)
+        output_ids = model.generate(**inputs, max_new_tokens=256, streamer=streamer)
 
     output_ids = output_ids[:, inputs["input_ids"].shape[1]:]
     response = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
