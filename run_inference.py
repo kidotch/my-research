@@ -39,6 +39,11 @@ import torch
 from qwen_vl_utils import process_vision_info
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
+# Flash Attentionが使えないGPU（compute < 8.0）向けにmem-efficient SDPAを強制
+torch.backends.cuda.enable_flash_sdp(False)
+torch.backends.cuda.enable_mem_efficient_sdp(True)
+torch.backends.cuda.enable_math_sdp(False)
+
 
 def extract_time(paragraph):
     paragraph = paragraph.lower()
