@@ -1,64 +1,81 @@
 #!/bin/bash
-# TimeLens セットアップスクリプト
-# 実行方法: bash setup_timelens.sh [--timelens_dir /path/to/TimeLens]
-# オプション:
-#   --timelens_dir  TimeLensリポジトリのクローン先（デフォルト: スクリプトと同じ親ディレクトリ/TimeLens）
+# TimeLens 推論環境セットアップ
+# 使い方: bash setup_timelens.sh
+#
+# 動作確認済み環境:
+#   Ubuntu 24.04 / Python 3.12 / CUDA 12.4
+#   RTX 3060 (VRAM 12GB) / RTX 2070 (VRAM 8GB)
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${SCRIPT_DIR}/../TimeLens"
-ENV_NAME="timelens"
+VENV_DIR="$HOME/venvs/timelens"
+CUDA_INDEX="https://download.pytorch.org/whl/cu124"
 
-# 引数処理
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --timelens_dir) REPO_DIR="$2"; shift 2 ;;
-        *) echo "不明なオプション: $1"; exit 1 ;;
-    esac
-done
+echo "=== TimeLens 推論環境セットアップ ==="
+echo "venv: $VENV_DIR"
+echo ""
 
-REPO_DIR="$(realpath -m "$REPO_DIR")"
-
-echo "=== TimeLens セットアップ開始 ==="
-
-# 1. リポジトリのクローン
-if [ ! -d "$REPO_DIR" ]; then
-    echo "[1/4] リポジトリをクローン中..."
-    git clone https://github.com/TencentARC/TimeLens.git "$REPO_DIR"
+# 1. venv 作成
+if [ -d "$VENV_DIR" ]; then
+    echo "[1/3] venv 既存 ($VENV_DIR) — スキップ"
 else
-    echo "[1/4] リポジトリ既存 ($REPO_DIR) - スキップ"
+    echo "[1/3] venv 作成中..."
+    python3 -m venv "$VENV_DIR"
+    echo "      完了"
 fi
 
-cd "$REPO_DIR"
+PIP="$VENV_DIR/bin/pip"
 
-# 2. conda環境の作成
-echo "[2/4] conda環境を作成中 ($ENV_NAME)..."
-conda create -n "$ENV_NAME" python=3.11 -y || echo "環境既存 - スキップ"
+# 2. パッケージインストール
+echo "[2/3] パッケージインストール中..."
+"$PIP" install --upgrade pip -q
 
-# 3. 依存パッケージのインストール
-echo "[3/4] 依存パッケージをインストール中..."
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$ENV_NAME"
+echo "      PyTorch (cu124)..."
+"$PIP" install torch torchvision --index-url "$CUDA_INDEX" -q
 
-# Blackwell GPU (sm_120) 対応のため cu128 を使用
-pip install -r requirements.txt -f https://download.pytorch.org/whl/cu124
-pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install flash-attn==2.7.4.post1 --no-build-isolation --no-cache-dir
+echo "      transformers / accelerate / bitsandbytes..."
+"$PIP" install transformers accelerate bitsandbytes -q
 
-# 4. 動作確認
-echo "[4/4] 動作確認..."
-python -c "
+echo "      qwen-vl-utils / av / decord..."
+"$PIP" install qwen-vl-utils av decord -q
+
+echo "      完了"
+
+# 3. 動作確認
+echo "[3/3] 動作確認..."
+"$VENV_DIR/bin/python" - <<'EOF'
 import torch
-print(f'PyTorch: {torch.__version__}')
-print(f'CUDA利用可能: {torch.cuda.is_available()}')
+print(f"  PyTorch:  {torch.__version__}")
+print(f"  CUDA:     {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print(f'GPU: {torch.cuda.get_device_name(0)}')
-    print(f'VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
-"
+    props = torch.cuda.get_device_properties(0)
+    vram = props.total_memory / 1024**3
+    print(f"  GPU:      {props.name}  ({vram:.1f} GB VRAM)")
+    if vram <= 9:
+        print(f"  推奨設定: --max_gpu_memory 4  (VRAM {vram:.0f}GB)")
+    else:
+        print(f"  推奨設定: --max_gpu_memory 5  (VRAM {vram:.0f}GB)")
+
+import transformers
+print(f"  transformers: {transformers.__version__}")
+import bitsandbytes
+print(f"  bitsandbytes: {bitsandbytes.__version__}")
+import qwen_vl_utils
+print(f"  qwen_vl_utils: ok")
+import av
+print(f"  av: ok")
+EOF
 
 echo ""
 echo "=== セットアップ完了 ==="
-echo "推論実行例:"
-echo "  conda activate $ENV_NAME"
-echo "  python run_inference.py --base_dir /path/to/research"
+echo ""
+echo "実行例 (VRAM 12GB):"
+echo "  $VENV_DIR/bin/python run_inference.py \\"
+echo "    --base_dir ~/univ/research \\"
+echo "    --test_data experiments/timelens/plans/test_data_60s_20260420.json"
+echo ""
+echo "実行例 (VRAM 8GB):"
+echo "  $VENV_DIR/bin/python run_inference.py \\"
+echo "    --base_dir ~/univ/research \\"
+echo "    --test_data experiments/timelens/plans/test_data_60s_20260420.json \\"
+echo "    --max_gpu_memory 4"
