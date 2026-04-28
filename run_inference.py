@@ -307,20 +307,20 @@ def main():
     results = []
     elapsed_times = []
     for i, item in enumerate(test_data):
-        clip_path = item["clip_path"]
-        if not os.path.isabs(clip_path):
-            clip_path = os.path.join(base_dir, clip_path)
+        video_path = item["video_path"]
+        if not os.path.isabs(video_path):
+            video_path = os.path.join(base_dir, video_path)
 
         print(f"[{i+1:2d}/{len(test_data)}] {item['id']}")
-        print(f"       クリップ: {os.path.basename(clip_path)}")
+        print(f"       動画:     {os.path.basename(video_path)}")
         print(f"       クエリ:   {item['query']}")
-        print(f"       正解:     {item['clip_time_start']:.3f}s - {item['clip_time_end']:.3f}s")
+        print(f"       正解:     {item['time_start']:.3f}s - {item['time_end']:.3f}s")
 
-        duration = get_duration(clip_path)
+        duration = item.get("duration") or get_duration(video_path)
         print(f"       尺:       {duration:.3f}s")
 
         t0 = time.time()
-        response, pred_timestamps = run_inference(model, processor, clip_path, item["query"], args.fps, args.total_pixels)
+        response, pred_timestamps = run_inference(model, processor, video_path, item["query"], args.fps, args.total_pixels)
         torch.cuda.empty_cache()
         elapsed = time.time() - t0
         elapsed_times.append(elapsed)
@@ -330,7 +330,7 @@ def main():
         eta_str = str(timedelta(seconds=int(remaining)))
         print(f"       推論時間: {elapsed:.1f}s  ETA {eta_str}")
 
-        gt = (item["clip_time_start"], item["clip_time_end"])
+        gt = (item["time_start"], item["time_end"])
         iou = calc_iou(pred_timestamps, gt)
         r1_03 = 1 if iou >= 0.3 else 0
         r1_05 = 1 if iou >= 0.5 else 0
@@ -342,9 +342,8 @@ def main():
         print()
 
         results.append({
-            **{k: item[k] for k in ["id", "clip_path", "segment_id", "source_video",
-                                     "label", "query", "clip_time_start", "clip_time_end"]},
-            "clip_duration": duration,
+            **{k: item[k] for k in ["id", "video_path", "label", "query", "time_start", "time_end"]},
+            "duration": duration,
             "response": response,
             "pred_timestamps": pred_timestamps,
             "iou": round(iou, 4),
@@ -394,9 +393,9 @@ def main():
         f.write(f"| ID | ラベル | 尺(s) | 正解(s) | 予測(s) | IoU | @0.3 | @0.5 | @0.7 |\n")
         f.write(f"|---|---|---|---|---|---|---|---|---|\n")
         for r in results:
-            gt_str   = f"{r['clip_time_start']:.2f}-{r['clip_time_end']:.2f}"
+            gt_str   = f"{r['time_start']:.2f}-{r['time_end']:.2f}"
             pred_str = f"{r['pred_timestamps'][0][0]:.2f}-{r['pred_timestamps'][0][1]:.2f}" if r["pred_timestamps"] else "なし"
-            f.write(f"| {r['id']} | {r['label']} | {r['clip_duration']:.1f} | {gt_str} | {pred_str} | {r['iou']:.3f} | {r['r1_at_03']} | {r['r1_at_05']} | {r['r1_at_07']} |\n")
+            f.write(f"| {r['id']} | {r['label']} | {r['duration']:.1f} | {gt_str} | {pred_str} | {r['iou']:.3f} | {r['r1_at_03']} | {r['r1_at_05']} | {r['r1_at_07']} |\n")
     print(f"MD保存:   {md_path}")
 
     print(f"\n=== 最終メトリクス ===")
