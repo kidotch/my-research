@@ -81,4 +81,39 @@ bash timelens/setup.sh
 
 ## UniTime
 
-（準備中）
+### セットアップ前提
+
+- UniTimeリポジトリ: `/workspace/UniTime`（または任意のパス）
+- ベースモデル: `models/Qwen2-VL-7B-Instruct/`
+- UniTimeウェイト: `models/UniTime/`（HuggingFace: zeqianli/UniTime）
+
+```bash
+git clone https://github.com/Lzq5/UniTime /workspace/UniTime
+huggingface-cli download Qwen/Qwen2-VL-7B-Instruct --local-dir models/Qwen2-VL-7B-Instruct
+huggingface-cli download zeqianli/UniTime --local-dir models/UniTime
+```
+
+### 推論コマンド
+
+**Vast.ai**
+
+```bash
+python /workspace/vtg-scripts/unitime/run_inference.py \
+  --base_dir /workspace/research \
+  --test_data experiments/timelens/plans/test_data_60s_20260420.json \
+  --unitime_repo /workspace/UniTime
+```
+
+### オプション
+
+```
+--base_dir        研究ルートディレクトリ（必須）
+--test_data       テストデータ JSON（base_dir からの相対パスまたは絶対パス）
+--unitime_repo    UniTimeリポジトリのパス（省略時: /workspace/UniTime）
+--base_model      Qwen2-VL-7B-Instruct（省略時: models/Qwen2-VL-7B-Instruct）
+--model           UniTimeウェイト（省略時: models/UniTime）
+--results_dir     結果保存先（省略時: experiments/unitime/results）
+--fps             動画サンプリング FPS（省略時: 2）
+--clip_length     クリップ長フレーム数（省略時: 32）
+--nf_short        この秒数以下はmrモード（省略時: 128）
+```
