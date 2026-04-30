@@ -1,45 +1,62 @@
-# my-research
+# vtg-scripts
 
-手術・看護手技動画を対象とした Video Temporal Grounding の研究コード。
+手術・看護手技動画を対象とした Video Temporal Grounding の個人研究スクリプト集。
+
+コードのみを管理します。データ・結果は Google Drive で管理します。
 
 ## ディレクトリ構成
 
-このリポジトリはコードのみを管理します。データ・結果は Google Drive で管理します。
+```
+vtg-scripts/
+├── timelens/
+│   ├── setup.sh          ← 環境構築
+│   └── run_inference.py  ← 推論スクリプト
+└── unitime/
+    ├── setup.sh          ← 環境構築
+    └── run_inference.py  ← 推論スクリプト
+```
+
+### Google Drive 側（--base_dir に渡すルート）
 
 ```
-research/               ← --base_dir に渡すルート
+research/
 ├── datasets/           ← 動画クリップ
 ├── experiments/
-│   └── timelens/
+│   ├── timelens/
+│   │   ├── plans/      ← テストデータ JSON
+│   │   └── results/    ← 推論結果
+│   └── unitime/
 │       ├── plans/      ← テストデータ JSON
 │       └── results/    ← 推論結果
 └── models/
-    └── TimeLens-8B/    ← モデルウェイト
+    ├── TimeLens-8B/
+    └── UniTime/
 ```
 
-## セットアップ（初回のみ）
+---
+
+## TimeLens
+
+### セットアップ
 
 ```bash
-bash setup_timelens.sh
+bash timelens/setup.sh
 ```
 
-## 推論コマンド
+### 推論コマンド
 
-### 自宅 PC（RTX 3060 12GB）
+**自宅 PC（RTX 3060 12GB）**
 
 ```fish
-~/venvs/timelens/bin/python3 ~/ghq/github.com/kidotch/my-research/run_inference.py \
+~/venvs/timelens/bin/python3 ~/ghq/github.com/kidotch/vtg-scripts/timelens/run_inference.py \
   --base_dir ~/univ/research \
   --test_data experiments/timelens/plans/test_data_60s_20260420.json
 ```
 
-- `--fps` / `--total_pixels` 指定不要（デフォルト値で動作）
-- 約50秒/サンプル
-
-### 研究室 PC（RTX 2070 8GB, WSL2）
+**研究室 PC（RTX 2070 8GB, WSL2）**
 
 ```fish
-source ~/venvs/timelens/bin/activate.fish && python3 ~/ghq/github.com/kidotch/my-research/run_inference.py \
+~/venvs/timelens/bin/python3 ~/ghq/github.com/kidotch/vtg-scripts/timelens/run_inference.py \
   --base_dir /mnt/d/kido/univ/research \
   --test_data experiments/timelens/plans/test_data_60s_20260420.json \
   --max_gpu_memory 6 \
@@ -47,11 +64,7 @@ source ~/venvs/timelens/bin/activate.fish && python3 ~/ghq/github.com/kidotch/my
   --total_pixels 3145728
 ```
 
-- Flash Attention 非対応のため `--fps 1 --total_pixels 3145728` でメモリ削減が必要
-- 約180秒/サンプル
-- 実行前に Whisper 等の残留プロセスが VRAM を食っていないか確認（`nvidia-smi`）
-
-## オプション一覧
+### オプション
 
 ```
 --base_dir        研究ルートディレクトリ（必須）
@@ -60,7 +73,12 @@ source ~/venvs/timelens/bin/activate.fish && python3 ~/ghq/github.com/kidotch/my
 --results_dir     結果保存先（省略時: experiments/timelens/results）
 --fps             動画サンプリング FPS（省略時: 2）
 --total_pixels    全フレームの合計ピクセル予算（省略時: 14680064）
-                  8GB VRAM 向けには 3145728 を推奨
 --max_gpu_memory  GPU に乗せるモデルの上限 GB（省略時: 5）
 --quantize        量子化モード: none / int8 / int4（省略時: none）
 ```
+
+---
+
+## UniTime
+
+（準備中）
