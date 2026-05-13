@@ -299,6 +299,8 @@ def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir = os.path.join(results_dir, timestamp[:8])
     os.makedirs(results_dir, exist_ok=True)
+    plan_stem = os.path.splitext(os.path.basename(test_data_path))[0]
+    result_stem = f"{plan_stem}_{timestamp[9:]}"
 
     with open(test_data_path, encoding="utf-8") as f:
         test_data = json.load(f)
@@ -374,12 +376,12 @@ def main():
         "results": results,
     }
 
-    json_path = f"{results_dir}/results_{timestamp}.json"
+    json_path = f"{results_dir}/{result_stem}.json"
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"JSON保存: {json_path}")
 
-    md_path = f"{results_dir}/results_{timestamp}.md"
+    md_path = f"{results_dir}/{result_stem}.md"
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(f"# TimeLens-8B 推論結果\n\n")
         f.write(f"- 実行日時: {timestamp}\n")
