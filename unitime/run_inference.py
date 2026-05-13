@@ -88,12 +88,22 @@ def main():
     parser.add_argument("--results_dir", default="experiments/unitime/results")
     parser.add_argument("--fps",         type=int, default=2)
     parser.add_argument("--clip_length", type=int, default=32)
-    parser.add_argument("--nf_short",    type=int, default=128, help="この秒数以下の動画はmrモード（-1で無効）")
+    parser.add_argument("--nf_short",    type=int, default=128, help="この秒数以下の動画はmrモード（-1はinference.pyのバグでクラッシュするため使用不可）")
     parser.add_argument("--feat_folder", default="/tmp/unitime_features")
     args = parser.parse_args()
 
+    if args.nf_short == -1:
+        parser.error("--nf_short -1 は UniTime inference.py のバグにより UnboundLocalError が発生します。使用しないでください。")
+
     base_dir = os.path.abspath(args.base_dir)
     _add_unitime_to_path(args.unitime_repo)
+
+    try:
+        import flash_attn  # noqa: F401
+    except ImportError:
+        print("警告: flash_attn が見つかりません。SDPA (O(n²) メモリ) で実行されます。")
+        print("      147 秒以上の動画は VRAM 不足でクラッシュする可能性があります。")
+        print()
 
     def resolve(p):
         return p if os.path.isabs(p) else os.path.join(base_dir, p)
