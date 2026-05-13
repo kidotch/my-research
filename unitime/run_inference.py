@@ -102,6 +102,8 @@ def main():
     base_model_path = resolve(args.base_model)
     finetune_path   = resolve(args.model)
     results_dir     = resolve(args.results_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = os.path.join(results_dir, timestamp[:8])
     os.makedirs(results_dir, exist_ok=True)
 
     print(f"base_dir:     {base_dir}")
@@ -110,8 +112,6 @@ def main():
     print(f"test_data:    {test_data_path}")
     print(f"results_dir:  {results_dir}")
     print()
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     with open(test_data_path, encoding="utf-8") as f:
         test_data = json.load(f)

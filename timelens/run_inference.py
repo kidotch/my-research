@@ -296,8 +296,9 @@ def main():
     print(f"results_dir:  {results_dir}")
     print(f"quantize:     {args.quantize}\n")
 
-    os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    results_dir = os.path.join(results_dir, timestamp[:8])
+    os.makedirs(results_dir, exist_ok=True)
 
     with open(test_data_path, encoding="utf-8") as f:
         test_data = json.load(f)
